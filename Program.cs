@@ -6,8 +6,9 @@ namespace MarkerLessDetector
 {
     class Program
     {
-        static void Main(string[] args)
+		static void VideoRun()
         {
+
 			var cap = new VideoCapture(@"rabit3V.mp4");
 			Mat MARKER = new Mat("rabits.jpg");
 			Cv2.Resize(MARKER, MARKER, new OpenCvSharp.Size(500, 500));
@@ -15,7 +16,7 @@ namespace MarkerLessDetector
 			PatternTrackingInfo patternTrackinginfo = new PatternTrackingInfo();
 			PatternDetector detector = new PatternDetector(true);
 			detector.buildPatternFromImage(MARKER, pattern);
-			detector.train(pattern);
+			detector.train();
 
 
 
@@ -32,8 +33,23 @@ namespace MarkerLessDetector
 
 					if (detector.findPattern(img, patternTrackinginfo))
 					{
-						patternTrackinginfo.computePose(pattern);
+                        patternTrackinginfo.computePose(pattern);
 
+                        var temp = patternTrackinginfo.campos.Get<Point3d>(0);
+
+                        string camposInfo = "x:" + Math.Round(temp.X, 5) + "\ny:" + Math.Round(temp.Y, 5) + "\nz:" + Math.Round(temp.Z, 5);
+                        Cv2.PutText(img,
+                        camposInfo,
+                        new OpenCvSharp.Point(0, 80),
+                        HersheyFonts.HersheyComplex,
+                        0.5,
+                        Scalar.White);
+
+                        for (int i = 0; i < patternTrackinginfo.points2d.Rows; i++)
+						{
+							//Console.WriteLine(" x"+(int)patternTrackinginfo.points2d.Get<Point2d>(i).X+" "+ (int)patternTrackinginfo.points2d.Get<Point2d>(i).Y);
+							Cv2.Circle(img, (int)patternTrackinginfo.points2d.Get<Point2d>(i).X, (int)patternTrackinginfo.points2d.Get<Point2d>(i).Y, 5, Scalar.Black, 3);
+						}
 					}
 
 
@@ -43,6 +59,48 @@ namespace MarkerLessDetector
 				}
 			}
 			cap.Release();
+		}
+		static void imgRun()
+        {
+			string path = @"D:\Code_Resource\IMAGE\";
+			Mat img = new Mat(path+ "rabit3.jpg");
+			Mat MARKER = new Mat(path+ "rabits.jpg");
+			Cv2.Resize(MARKER, MARKER, new OpenCvSharp.Size(500, 500));
+			Pattern pattern = new Pattern();
+			PatternTrackingInfo patternTrackinginfo = new PatternTrackingInfo();
+			PatternDetector detector = new PatternDetector(true);
+			detector.buildPatternFromImage(MARKER, pattern);
+			detector.train();
+			if(detector.findPattern(img, patternTrackinginfo))
+            {
+				patternTrackinginfo.computePose(pattern);
+
+				var temp = patternTrackinginfo.campos.Get<Point3d>(0);
+
+				string camposInfo = "x:" + Math.Round(temp.X, 5) + "y:" + Math.Round(temp.Y, 5) + "z:" + Math.Round(temp.Z, 5);
+				Cv2.PutText(img,
+				camposInfo,
+				new OpenCvSharp.Point(0, 80),
+				HersheyFonts.HersheyComplex,
+				0.5,
+				Scalar.White);
+
+				for (int i = 0; i < 4; i++)
+				{
+					Cv2.Circle(img, (int)patternTrackinginfo.points2d.Get<Point2d>(i).X, (int)patternTrackinginfo.points2d.Get<Point2d>(i).Y, 5, Scalar.Black, 3);
+				}
+			}
+			Cv2.ImShow("result", img);
+
+			Cv2.WaitKey(100000);
+			img.Release();
+		}
+        static void Main(string[] args)
+        {
+			//imgRun();
+			VideoRun();
+
+
 		}
     }
 }

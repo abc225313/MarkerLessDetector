@@ -107,9 +107,9 @@ namespace OpenCVMarkerLessAR
         public PatternDetector (bool ratioTest)
         {
 
-            m_detector = ORB.Create(1500);
+            m_detector = ORB.Create(1000);
            
-            m_extractor = ORB.Create(1500);
+            m_extractor = ORB.Create(1000);
             //BFMatcher bfMatcher = new BFMatcher(NormTypes.Hamming, true);
             m_matcher = new BFMatcher(NormTypes.Hamming);
             //m_matcher = DescriptorMatcher.Create("BRUTEFORCE_HAMMING");
@@ -132,10 +132,10 @@ namespace OpenCVMarkerLessAR
         /// Train the specified pattern.
         /// </summary>
         /// <param name="pattern">Pattern.</param>
-        public void train (Pattern pattern)
+        public void train ()
         {
             // Store the pattern object
-            m_pattern = pattern;
+
         
             // API of cv::DescriptorMatcher is somewhat tricky
             // First we clear old train data:
@@ -144,7 +144,7 @@ namespace OpenCVMarkerLessAR
             // Then we add vector of descriptors (each descriptors matrix describe one image). 
             // This allows us to perform search across multiple images:
             List<Mat> descriptors = new List<Mat> (1);
-            descriptors.Add (pattern.descriptors.Clone ()); 
+            descriptors.Add (m_pattern.descriptors.Clone ()); 
             m_matcher.Add (descriptors);
         
             // After adding train data perform actual train:
@@ -163,24 +163,25 @@ namespace OpenCVMarkerLessAR
 
             // Store original image in pattern structure
             // Image dimensions
+            m_pattern = pattern;
             float w = image.Cols;
             float h = image.Rows;
-            pattern.size = new Size (w, h);
-            pattern.frame = image.Clone ();
+            m_pattern.size = new Size (w, h);
+            m_pattern.frame = image.Clone ();
             //getGray (image, pattern.grayImg);
-            Cv2.CvtColor(image, pattern.grayImg, ColorConversionCodes.BGR2GRAY);
+            Cv2.CvtColor(image, m_pattern.grayImg, ColorConversionCodes.BGR2GRAY);
 
             //pattern.points2d.fromList (points2dList);
-            pattern.points2d = new Point2f[]
+            m_pattern.points2d = new Point2f[]
             {
                 new Point2f(0, 0),
                 new Point2f(w, 0),
-                new Point2f(w, h),
-                new Point2f(0, h)
+                new Point2f(w,h),
+                new Point2f(0,h)
             };
 
 
-            pattern.points3d = new Point3f[]
+            m_pattern.points3d = new Point3f[]
             {
                 //18 mean marker cm
                 new Point3f(-8, -8, 0),
@@ -203,21 +204,22 @@ namespace OpenCVMarkerLessAR
         {
             // Convert input image to gray
             getGray (image,ref m_grayImg);
-        
+            //Cv2.CvtColor(image, m_grayImg, ColorConversionCodes.BGR2GRAY);
             // Extract feature points from input gray image
             extractFeatures (m_grayImg, ref m_queryKeypoints, ref m_queryDescriptors);
         
             // Get matches with current pattern
             getMatches (m_queryDescriptors,ref m_matches);
 
-        
+            m_roughHomography = new Mat();
             // Find homography transformation and detect good matches
             bool homographyFound = refineMatchesWithHomography (
                                        m_queryKeypoints, 
                                        m_pattern.keyPoints, 
                                        homographyReprojectionThreshold, 
                                        ref m_matches, 
-                                       ref m_roughHomography);
+                                       ref m_roughHomography,
+                                       HomographyMethods.Ransac);
         
             if (homographyFound) {
                         
@@ -227,31 +229,41 @@ namespace OpenCVMarkerLessAR
                 if (enableRatioTest) {
                     // Warp image using found homography
                     Cv2.WarpPerspective(m_grayImg, m_warpedImg, m_roughHomography, m_pattern.size,InterpolationFlags.WarpInverseMap| InterpolationFlags.Cubic);
-                    
+                    Cv2.ImShow("second img", m_warpedImg);
                     KeyPoint[] warpedqueryKeypoints=null;
-                    extractFeatures(m_grayImg, ref warpedqueryKeypoints, ref m_queryDescriptors);
+                    extractFeatures(m_warpedImg, ref warpedqueryKeypoints, ref m_queryDescriptors);
                     DMatch[] refinedMatches = null;
                     // Match with pattern
                     getMatches(m_queryDescriptors, ref refinedMatches);
-
+                    m_refinedHomography = new Mat();
                     // Estimate new refinement homography
                     homographyFound = refineMatchesWithHomography(
                         warpedqueryKeypoints,
                         m_pattern.keyPoints,
                         homographyReprojectionThreshold,
                         ref refinedMatches,
-                        ref m_refinedHomography);
+                        ref m_refinedHomography,
+                        HomographyMethods.LMedS);
+                    if (!homographyFound)
+                        return false;
                     info.homography = m_roughHomography * m_refinedHomography;
-
-
+                    Cv2.WarpPerspective(m_grayImg, m_warpedImg, info.homography, m_pattern.size, InterpolationFlags.WarpInverseMap | InterpolationFlags.Cubic);
+                    Cv2.ImShow("third img", m_warpedImg);
+                    Console.WriteLine(m_pattern.points2d.Length);
                     using (Mat src = new Mat(m_pattern.points2d.Length, 1, MatType.CV_32FC2, m_pattern.points2d))
                     using (Mat dst = new Mat())
                     {
                         Cv2.PerspectiveTransform(src, dst, info.homography);
                         Point2f[] dstArray = new Point2f[dst.Rows * dst.Cols];
                         dst.GetArray(out dstArray);
+                        for (int j = 0; j < dstArray.Length; j++)
+                            Console.WriteLine(dstArray[j]);
                         Point2d[]result = Array.ConvertAll(dstArray,new Converter<Point2f, Point2d>(Point2fToPoint2d));
+                        for (int j = 0; j < result.Length; j++)
+                            Console.WriteLine(result[j]);
                         info.points2d = new Mat(result.Length, 1, MatType.CV_32FC2, result);
+                        //for (int j = 0; j < info.points2d.Rows; j++)
+                        //    Console.WriteLine(info.points2d.Row(j));
                         var s = "break point";
                         //return result;
                     }
@@ -271,8 +283,6 @@ namespace OpenCVMarkerLessAR
                         dst.GetArray(out dstArray);
                         Point2d[] result = Array.ConvertAll(dstArray, new Converter<Point2f, Point2d>(Point2fToPoint2d));
                         info.points2d = new Mat(result.Length, 1, MatType.CV_32FC2, result);
-                        var s = "break point";
-                        //return result;
                     }
 
                    
@@ -397,7 +407,8 @@ namespace OpenCVMarkerLessAR
             KeyPoint[] trainKeypoints, 
             float reprojectionThreshold,
             ref DMatch[] matches,
-            ref Mat homography
+            ref Mat homography,
+            HomographyMethods methods
         )
         {
 //              Debug.Log ("matches " + matches.ToString ());
@@ -429,7 +440,7 @@ namespace OpenCVMarkerLessAR
             using (var inliersMask = new Mat(srcPointsList.Count, 1, MatType.CV_8U))
             {
                 //homography=Cv2.FindHomography(InputArray.Create( srcPointsList), InputArray.Create(dstPointsList), HomographyMethods.Ransac, reprojectionThreshold, inliersMask);
-                homography = Cv2.FindHomography(srcPoints, dstPoints, HomographyMethods.Ransac, reprojectionThreshold, inliersMask);
+                homography = Cv2.FindHomography(srcPoints, dstPoints, methods, reprojectionThreshold, inliersMask);
                 if (homography.Rows != 3 || homography.Cols != 3)
                     return false;
 
